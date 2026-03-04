@@ -1,0 +1,7 @@
+.DS_Store
+node_modules
+.tmp
+.vscode
+webpack.statistics.dev.html
+webpack.statistics.prod.html
+dist

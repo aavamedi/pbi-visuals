@@ -1,0 +1,10 @@
+{
+  "name": "aava-radar-chart",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "eslint": "^9.39.2",
+    "powerbi-visuals-tools": "^7.0.2"
+  }
+}

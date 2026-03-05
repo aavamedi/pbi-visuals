@@ -19,3 +19,6 @@ The center label is the average of values, divided by max values and multiplied 
 To package the visual, run `npx pbiviz package`. 
 The package is created in folder dist; add that to Power BI Desktop at Visualizations -> Import a visual from a file.
 
+## License
+
+This visual is published under MIT License. See https://opensource.org/license/mit 

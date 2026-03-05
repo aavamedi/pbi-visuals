@@ -5,6 +5,7 @@ import powerbi from "powerbi-visuals-api"
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions
 import IVisual = powerbi.extensibility.visual.IVisual
+import ISelectionManager = powerbi.extensibility.ISelectionManager
 import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
 import IVisualEventService = powerbi.extensibility.IVisualEventService;
 import {AavaRadarChartSettingsModel} from "./settings"
@@ -29,6 +30,7 @@ export class Visual implements IVisual {
     private formattingSettings: AavaRadarChartSettingsModel
     private formattingSettingsService: FormattingSettingsService
     private events: IVisualEventService
+    private selectionManager: ISelectionManager;
 
     private width: number
     private height: number
@@ -38,9 +40,11 @@ export class Visual implements IVisual {
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService()
         this.events = options.host.eventService
+        this.selectionManager = options.host.createSelectionManager()
 
         this.svg = d3.select(options.element)
             .append('svg')
+        this.handleContextMenu()
         this.container = this.svg.append("g")
         this.circle5 = this.container.append("circle")
         this.circle4 = this.container.append("circle")
@@ -48,6 +52,13 @@ export class Visual implements IVisual {
         this.circle2 = this.container.append("circle")
         this.circle1 = this.container.append("circle")
         this.dataContainer = this.svg.append("g")
+    }
+
+    private handleContextMenu() {
+        this.svg.on("contextmenu", (event) => {
+            const mouseEvent: MouseEvent = event;
+            mouseEvent.preventDefault();
+        });
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {

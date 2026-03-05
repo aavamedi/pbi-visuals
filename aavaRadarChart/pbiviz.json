@@ -4,7 +4,7 @@
         "displayName": "AavaRadarChart",
         "guid": "aavaRadarChartEC02E5461BCD4636A712440480502BB4",
         "visualClassName": "Visual",
-        "version": "1.0.0.0",
+        "version": "1.0.0.1",
         "description": "Aava Radar Chart",
         "supportUrl": "https://github.com/aavamedi/pbi-visuals/blob/main/aavaRadarChart/README.md",
         "gitHubUrl": "https://github.com/aavamedi/pbi-visuals"
@@ -22,5 +22,5 @@
     "capabilities": "capabilities.json",
     "dependencies": null,
     "stringResources": [],
-    "version": "1.0.0.0"
+    "version": "1.0.0.1"
 }

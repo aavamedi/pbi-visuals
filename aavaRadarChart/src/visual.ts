@@ -55,8 +55,12 @@ export class Visual implements IVisual {
     }
 
     private handleContextMenu() {
-        this.svg.on("contextmenu", (event) => {
+        this.svg.on("contextmenu", (event, dataPoint) => {
             const mouseEvent: MouseEvent = event;
+            this.selectionManager.showContextMenu(dataPoint ? dataPoint: {}, {
+                x: mouseEvent.clientX,
+                y: mouseEvent.clientY
+            });
             mouseEvent.preventDefault();
         });
     }

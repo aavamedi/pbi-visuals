@@ -11,23 +11,15 @@
             "kind": "Measure"
         }
     ],
-    "objects": {
-    },
     "dataViewMappings": [
         {
-            "table": {
-                "rows": {
+            "categorical": {
+                "categories": {
+                    "for": { "in": "category" }
+                },
+                "values": {
                     "select": [
-                        {
-                            "for": {
-                                "in": "category"
-                            }
-                        },
-                        {
-                            "for": {
-                                "in": "value"
-                            }
-                        }
+                        { "for": { "in": "value" } }
                     ]
                 }
             }
@@ -36,5 +28,6 @@
     "privileges": [],
     "sorting": {
         "default": {   }
-    }
+    },
+    "supportsHighlight": true
 }

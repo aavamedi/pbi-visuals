@@ -18,10 +18,8 @@
     "assets": {
         "icon": "assets/icon.png"
     },
-    "externalJS": null,
     "style": "style/visual.less",
     "capabilities": "capabilities.json",
-    "dependencies": null,
     "stringResources": [],
     "version": "1.0.0.3"
 }

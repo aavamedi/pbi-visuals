@@ -6,15 +6,26 @@ import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructor
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions
 import IVisual = powerbi.extensibility.visual.IVisual
 import ISelectionManager = powerbi.extensibility.ISelectionManager
-import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
-import IVisualEventService = powerbi.extensibility.IVisualEventService;
-import {AavaRadarChartSettingsModel} from "./settings"
+import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel"
+import IVisualEventService = powerbi.extensibility.IVisualEventService
+import { AavaRadarChartSettingsModel } from "./settings"
 import * as d3 from "d3"
 type Selection<T extends d3.BaseType> = d3.Selection<T, any, any, any>
-type DataPointType = { value: number, label: string }
+type DataPoint = {
+    value: number,
+    label: string,
+    selectionId: powerbi.visuals.ISelectionId,
+    highlight?: boolean
+}
 
 const MAX_VALUE: number = 5
 const COLOR_BLUE = "#004D7D"
+
+const DEBUG = false
+
+const debug = (msg: string, obj?: any) => {
+    if (DEBUG) { console.log(msg, obj) }
+}
 
 export class Visual implements IVisual {
     private svg: Selection<SVGElement>
@@ -30,14 +41,19 @@ export class Visual implements IVisual {
     private formattingSettings: AavaRadarChartSettingsModel
     private formattingSettingsService: FormattingSettingsService
     private events: IVisualEventService
-    private selectionManager: ISelectionManager;
+    private selectionManager: ISelectionManager
+    private host: powerbi.extensibility.visual.IVisualHost
 
     private width: number
     private height: number
     private radius: number
     private fontSizeValue: number
 
+    private dataPoints: Array<DataPoint>
+    private selectedDataPoints: Array<DataPoint>
+
     constructor(options: VisualConstructorOptions) {
+        this.host = options.host
         this.formattingSettingsService = new FormattingSettingsService()
         this.events = options.host.eventService
         this.selectionManager = options.host.createSelectionManager()
@@ -52,17 +68,19 @@ export class Visual implements IVisual {
         this.circle2 = this.container.append("circle")
         this.circle1 = this.container.append("circle")
         this.dataContainer = this.svg.append("g")
+
+        this.selectedDataPoints = []
     }
 
     private handleContextMenu() {
         this.svg.on("contextmenu", (event, dataPoint) => {
-            const mouseEvent: MouseEvent = event;
-            this.selectionManager.showContextMenu(dataPoint ? dataPoint: {}, {
+            const mouseEvent: MouseEvent = event
+            this.selectionManager.showContextMenu(dataPoint ? dataPoint : {}, {
                 x: mouseEvent.clientX,
                 y: mouseEvent.clientY
-            });
-            mouseEvent.preventDefault();
-        });
+            })
+            mouseEvent.preventDefault()
+        })
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
@@ -96,7 +114,7 @@ export class Visual implements IVisual {
         const words = text.split(/\s+/)
         const result: string[] = []
         let current = ""
-        
+
         for (const word of words) {
             const test = current ? `${current} ${word}` : word
             if (test.length >= maxLength && current && current.length > minLength) {
@@ -109,16 +127,27 @@ export class Visual implements IVisual {
         if (current) result.push(current)
         return result
     }
-    
-    private addDataPoint(value: number, label: string, dataCount: number, dataCurrent: number) {
+
+    private isDataPointSelected(dataPoint: DataPoint): boolean {
+        debug("isDataPointSelected", { dataPoint, selectedDataPoints: this.selectedDataPoints })
+
+        for (const i in this.selectedDataPoints) {
+            if (this.selectedDataPoints[i].selectionId.getKey() === dataPoint.selectionId.getKey()) { return true }
+        }
+        return false
+    }
+
+    private addDataPoint(dataPoint: DataPoint, dataCount: number, dataCurrent: number, isHighlighting: boolean) {
+        debug('addDataPoint', { point: dataPoint, dataCount, dataCurrent })
+
         const angle = 2 * Math.PI * dataCurrent / dataCount
         let isOverMaxValue = false
 
-        if (value > MAX_VALUE) {
+        if (dataPoint.value > MAX_VALUE) {
             isOverMaxValue = true
         }
 
-        const valueText = "" + (Math.round(value * 10) / 10).toString() + (isOverMaxValue ? "⚠️": "")
+        const valueText = "" + (Math.round(dataPoint.value * 10) / 10).toString() + (isOverMaxValue ? "⚠️" : "")
 
         const lineEndPoint = this.getPoint(this.radius, angle)
         this.dataContainer.append("line")
@@ -129,16 +158,25 @@ export class Visual implements IVisual {
             .attr("y2", lineEndPoint.y)
             .style("stroke-width", 2)
 
-        const dataPoint = this.getPoint(value / MAX_VALUE * this.radius, angle)
+        const geomPoint = this.getPoint(dataPoint.value / MAX_VALUE * this.radius, angle)
         this.dataContainer.append("circle")
-            .attr("cx", dataPoint.x)
-            .attr("cy", dataPoint.y)
+            .datum(dataPoint)
+            .classed("radarPoint", true)
+            .attr("cx", geomPoint.x)
+            .attr("cy", geomPoint.y)
             .attr("r", this.fontSizeValue / 8)
             .style("fill", COLOR_BLUE)
+            .style("fill-opacity", (
+                (isHighlighting && !dataPoint.highlight) || (this.hasSelections() && !this.isDataPointSelected(dataPoint))
+            ) ? 0.5 : 1)
+
+
         this.dataContainer.append("text")
+            .datum(dataPoint)
+            .classed("radarPoint", true)
             .text(valueText)
-            .attr("x", dataPoint.x)
-            .attr("y", dataPoint.y)
+            .attr("x", geomPoint.x)
+            .attr("y", geomPoint.y)
             .attr("text-anchor", "middle")
             .attr("dy", "+0.35em")
             .style("font-size", this.fontSizeValue / 8 + "px")
@@ -146,7 +184,7 @@ export class Visual implements IVisual {
             .style("font-weight", "bold")
 
         const axisLabelPoint = this.getPoint(1.12 * this.radius, angle)
-        const vDistanceFromMiddle = axisLabelPoint.x - this.width/2
+        const vDistanceFromMiddle = axisLabelPoint.x - this.width / 2
 
         let textAnchor = "middle"
         if (vDistanceFromMiddle > 0.5 * this.radius) {
@@ -155,78 +193,97 @@ export class Visual implements IVisual {
             textAnchor = "end"
         }
 
-        const axisLabelRows = textAnchor == "middle"? [label] : this.splitToMinLength(label)
-        const axisLabelDy = textAnchor !== "middle" && axisLabelPoint.y < this.height/2? (axisLabelRows.length - 1) * this.fontSizeValue / 8 : 0
+        const axisLabelRows = textAnchor == "middle" ? [dataPoint.label] : this.splitToMinLength(dataPoint.label)
+        const axisLabelDy = textAnchor !== "middle" && axisLabelPoint.y < this.height / 2 ? (axisLabelRows.length - 1) * this.fontSizeValue / 8 : 0
 
         const axisLabelElement = this.dataContainer.append("text")
             .attr("x", axisLabelPoint.x)
-            .attr("y", axisLabelPoint.y -  axisLabelDy + this.fontSizeValue / 14)
+            .attr("y", axisLabelPoint.y - axisLabelDy + this.fontSizeValue / 14)
             .attr("text-anchor", textAnchor)
             .style("font-size", this.fontSizeValue / 8 + "px")
 
+
         axisLabelRows.forEach((axisLabelRow, index) => {
             axisLabelElement.append("tspan")
+                .datum(dataPoint)
+                .classed("radarPoint", true)
                 .text(axisLabelRow)
                 .attr("x", axisLabelPoint.x)
-                .attr("dy", "" + (index > 0? 1.5 : 0) +"em")
+                .attr("dy", "" + (index > 0 ? 1.5 : 0) + "em")
         })
     }
 
-    private getDataPoints(dataViews: powerbi.DataView[]): DataPointType[] {
+    private getDataPoints(dataViews: powerbi.DataView[]): DataPoint[] {
         if (!dataViews
             || !dataViews[0]
-            || !dataViews[0].table
-            || !dataViews[0].table.rows
+            || !dataViews[0].categorical
+            || !dataViews[0].categorical.categories
+            || !dataViews[0].categorical.values
         ) {
             return []
         }
 
-        return dataViews[0].table.rows.reduce<Array<DataPointType>>((acc, row) => {
-            if (row[0] && row[1]) {
-                const value = row[1] as number
+        const categorical = dataViews[0].categorical
+        const categoryColumn = categorical.categories[0]
 
-                acc.push({
-                    label: row[0] as string,
-                    value: value > MAX_VALUE? MAX_VALUE + 0.01 : value
-                })
+        const valuesColumn = categorical.values[0]
+        const values = valuesColumn.values as number[]
+        const highlights = valuesColumn.highlights as (number | null)[] | undefined
+
+        debug('categorical', { categorical, values, highlights })
+
+        return values.map((value, index) => {
+            const valueNum = value as number
+
+            const selectionId = this.host.createSelectionIdBuilder()
+                .withCategory(categoryColumn, index)
+                .createSelectionId()
+
+            const highlight = !!(highlights && highlights[index])
+
+            return {
+                label: categoryColumn.values[index] as string,
+                value: valueNum > MAX_VALUE ? MAX_VALUE + 0.01 : valueNum,
+                selectionId,
+                highlight
             }
-            return acc
-        }, [])
+
+        })
     }
 
-    private getScore(dataPoints: DataPointType[]): string{
+    private getScore(dataPoints: DataPoint[]): string {
         if (dataPoints.length === 0) {
             return ""
         }
         const sum = dataPoints.reduce((acc, current) => {
             return acc + current.value
         }, 0)
-        const avg = sum/dataPoints.length
+        const avg = sum / dataPoints.length
         return Math.round(100 * (avg - 1) / (MAX_VALUE - 1)).toString()
     }
 
-    public update(options: VisualUpdateOptions) {
-        this.events.renderingStarted(options)
+    private hasHighlights(dataPoints: Array<DataPoint>): boolean {
+        for (const i in dataPoints) {
+            if (dataPoints[i].highlight) { return true }
+        }
+        return false
+    }
 
-        this.width = options.viewport.width
-        this.height = options.viewport.height
-        this.svg.attr("width", this.width)
-        this.svg.attr("height", this.height)
-        this.radius = this.width < 1.5 * this.height? this.width / (1.5 * 2.35) : this.height / 2.35
-        this.fontSizeValue = Math.min(this.width, this.height) / 5
+    private hasSelections(): boolean {
+        return this.selectedDataPoints.length > 0
+    }
 
+    private render() {
         this.updateCircle(this.circle5, "#D4EBD4", "#3FA44E66", 5 / MAX_VALUE)
         this.updateCircle(this.circle4, "#FFF3C7", "#3FA44E66", 4 / MAX_VALUE)
         this.updateCircle(this.circle3, "#FFC6C6", "#DF073333", 3 / MAX_VALUE)
         this.updateCircle(this.circle2, "#FFC6C6", "#DF073333", 2 / MAX_VALUE)
         this.updateCircle(this.circle1, "#FFC6C6", "#DF073333", 1 / MAX_VALUE)
 
-        const dataPoints = this.getDataPoints(options.dataViews)
-
         this.dataContainer.selectAll("*").remove()
 
-        const plotPoints = dataPoints.reduce((acc, current, i) => {
-            acc.push(this.getDataPolygonPoint(current.value, dataPoints.length, i))
+        const plotPoints = this.dataPoints.reduce((acc, current, i) => {
+            acc.push(this.getDataPolygonPoint(current.value, this.dataPoints.length, i))
             return acc
         }, [])
 
@@ -236,16 +293,66 @@ export class Visual implements IVisual {
             .style("stroke", COLOR_BLUE)
             .attr("points", plotPoints.join(" "))
 
-        dataPoints.reduce((acc, current, i) => {
-            acc.push(this.addDataPoint(current.value, current.label, dataPoints.length, i))
-            return acc
-        }, [])
-    
+        this.dataPoints.forEach((point, i) => {
+            this.addDataPoint(point, this.dataPoints.length, i, this.hasHighlights(this.dataPoints))
+        })
+
+        this.svg.on("click", () => {
+            debug("background svg clicked")
+            this.selectionManager.clear()
+            this.selectedDataPoints = []
+            this.render()
+        })
+
+        this.svg.selectAll(".radarPoint")
+            .on("click", (event: MouseEvent, dataPoint: DataPoint) => {
+                debug("category clicked", { dataPoint, event })
+                const isMulti = event.ctrlKey || event.metaKey
+                this.selectionManager.select(dataPoint.selectionId, isMulti)
+
+                const isAlreadySelected = this.isDataPointSelected(dataPoint)
+                const isMultipleSelected = this.selectedDataPoints.length > 1
+
+
+                if (!isMulti) {
+                    if (isAlreadySelected && isMultipleSelected) {
+                        // Case: the user clicked a selected item while other items are selected
+                        // Action: keep only this item selected (becomes single selection)
+                        this.selectedDataPoints = [dataPoint]
+                    }
+                    else if (isAlreadySelected && !isMultipleSelected) {
+                        // Case: user clicked the already-selected item when it is the ONLY selection
+                        // Action: clear selection (toggle off)
+                        this.selectedDataPoints = []
+                    }
+                    else {
+                        // Case: clicked a new item
+                        // Action: select only this item
+                        this.selectedDataPoints = [dataPoint]
+                    }
+                }
+                else {
+                    if (!isAlreadySelected) {
+                        // Case: CTRL+click on unselected item → add it
+                        this.selectedDataPoints.push(dataPoint)
+                    }
+                    else {
+                        // Case: CTRL+click on a selected item → remove it
+                        // Edge case: after removal, if empty → no selection
+                        this.selectedDataPoints = this.selectedDataPoints.filter(dp => dp.selectionId.getKey() !== dataPoint.selectionId.getKey())
+                    }
+                }
+
+                this.render()
+                event.stopPropagation()
+            })
+
+
         this.circleBullseye = this.dataContainer.append("circle")
         this.updateCircle(this.circleBullseye, COLOR_BLUE, COLOR_BLUE, 0.6 / MAX_VALUE)
         this.textLabel = this.dataContainer.append("text")
         this.textLabel
-            .text(this.getScore(dataPoints))
+            .text(this.getScore(this.dataPoints))
             .attr("x", this.width / 2)
             .attr("y", this.height / 2)
             .attr("dy", "+0.35em")
@@ -254,6 +361,27 @@ export class Visual implements IVisual {
             .style("font-weight", "bold")
             .style("font-size", this.fontSizeValue / 3.75 + "px")
 
-        this.events.renderingFinished(options)
-    }    
+    }
+
+    public update(options: VisualUpdateOptions) {
+        try {
+            this.events.renderingStarted(options)
+
+            this.width = options.viewport.width
+            this.height = options.viewport.height
+            this.svg.attr("width", this.width)
+            this.svg.attr("height", this.height)
+            this.radius = this.width < 1.5 * this.height ? this.width / (1.5 * 2.35) : this.height / 2.35
+            this.fontSizeValue = Math.min(this.width, this.height) / 5
+
+            this.dataPoints = this.getDataPoints(options.dataViews)
+
+            this.render()
+
+            this.events.renderingFinished(options)
+        } catch (e) {
+            debug("error in update", e)
+            this.events.renderingFailed(options, e)
+        }
+    }
 }

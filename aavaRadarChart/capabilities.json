@@ -29,5 +29,14 @@
     "sorting": {
         "default": {   }
     },
-    "supportsHighlight": true
+    "supportsHighlight": true,
+    "tooltips": {
+        "supportedTypes": {
+            "default": true,
+            "canvas": true
+        },
+        "roles": [
+            "tooltips"
+        ]
+    }
 }

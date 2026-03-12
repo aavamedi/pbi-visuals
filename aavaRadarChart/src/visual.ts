@@ -8,6 +8,7 @@ import IVisual = powerbi.extensibility.visual.IVisual
 import ISelectionManager = powerbi.extensibility.ISelectionManager
 import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel"
 import IVisualEventService = powerbi.extensibility.IVisualEventService
+import { ITooltipServiceWrapper, createTooltipServiceWrapper } from "powerbi-visuals-utils-tooltiputils"
 import { AavaRadarChartSettingsModel } from "./settings"
 import * as d3 from "d3"
 type Selection<T extends d3.BaseType> = d3.Selection<T, any, any, any>
@@ -43,6 +44,7 @@ export class Visual implements IVisual {
     private events: IVisualEventService
     private selectionManager: ISelectionManager
     private host: powerbi.extensibility.visual.IVisualHost
+    private tooltipServiceWrapper: ITooltipServiceWrapper
 
     private width: number
     private height: number
@@ -57,6 +59,15 @@ export class Visual implements IVisual {
         this.formattingSettingsService = new FormattingSettingsService()
         this.events = options.host.eventService
         this.selectionManager = options.host.createSelectionManager()
+
+        try {
+            this.tooltipServiceWrapper = createTooltipServiceWrapper(
+                options.host.tooltipService,
+                options.element
+            )
+        } catch (error) {
+            console.warn("Tooltip service initialization failed:", error)
+        }
 
         this.svg = d3.select(options.element)
             .append('svg')
@@ -273,6 +284,31 @@ export class Visual implements IVisual {
         return this.selectedDataPoints.length > 0
     }
 
+    private getTooltipData(dataPoint: DataPoint): powerbi.extensibility.VisualTooltipDataItem[] {
+        if (!dataPoint) {
+            return []
+        }
+
+        const label = dataPoint.label ?? ""
+        let formattedValue: string
+
+        if (typeof dataPoint.value !== 'number' || !isFinite(dataPoint.value)) {
+            formattedValue = "-"
+        } else {
+            const roundedValue = Math.round(dataPoint.value * 10) / 10
+            formattedValue = roundedValue.toString()
+            if (dataPoint.value > MAX_VALUE) {
+                formattedValue += "⚠️"
+            }
+        }
+
+        return [{
+            displayName: label,
+            value: formattedValue
+        }]
+    }
+
+
     private render() {
         this.updateCircle(this.circle5, "#D4EBD4", "#3FA44E66", 5 / MAX_VALUE)
         this.updateCircle(this.circle4, "#FFF3C7", "#3FA44E66", 4 / MAX_VALUE)
@@ -319,24 +355,20 @@ export class Visual implements IVisual {
                         // Case: the user clicked a selected item while other items are selected
                         // Action: keep only this item selected (becomes single selection)
                         this.selectedDataPoints = [dataPoint]
-                    }
-                    else if (isAlreadySelected && !isMultipleSelected) {
+                    } else if (isAlreadySelected && !isMultipleSelected) {
                         // Case: user clicked the already-selected item when it is the ONLY selection
                         // Action: clear selection (toggle off)
                         this.selectedDataPoints = []
-                    }
-                    else {
+                    } else {
                         // Case: clicked a new item
                         // Action: select only this item
                         this.selectedDataPoints = [dataPoint]
                     }
-                }
-                else {
+                } else {
                     if (!isAlreadySelected) {
                         // Case: CTRL+click on unselected item → add it
                         this.selectedDataPoints.push(dataPoint)
-                    }
-                    else {
+                    } else {
                         // Case: CTRL+click on a selected item → remove it
                         // Edge case: after removal, if empty → no selection
                         this.selectedDataPoints = this.selectedDataPoints.filter(dp => dp.selectionId.getKey() !== dataPoint.selectionId.getKey())
@@ -361,6 +393,12 @@ export class Visual implements IVisual {
             .style("font-weight", "bold")
             .style("font-size", this.fontSizeValue / 3.75 + "px")
 
+        if (this.tooltipServiceWrapper) {
+            this.tooltipServiceWrapper.addTooltip<DataPoint>(
+                this.svg.selectAll(".radarPoint"),
+                (dataPoint: DataPoint) => this.getTooltipData(dataPoint)
+            )
+        }
     }
 
     public update(options: VisualUpdateOptions) {

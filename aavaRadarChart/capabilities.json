@@ -9,6 +9,11 @@
             "displayName": "Value",
             "name": "value",
             "kind": "Measure"
+        },
+        {
+            "displayName": "Index",
+            "name": "index",
+            "kind": "Measure"
         }
     ],
     "dataViewMappings": [
@@ -19,7 +24,8 @@
                 },
                 "values": {
                     "select": [
-                        { "for": { "in": "value" } }
+                        { "for": { "in": "value" } },
+                        { "for": { "in": "index" } }
                     ]
                 }
             }

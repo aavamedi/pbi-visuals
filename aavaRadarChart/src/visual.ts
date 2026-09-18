@@ -53,6 +53,7 @@ export class Visual implements IVisual {
 
     private dataPoints: Array<DataPoint>
     private selectedDataPoints: Array<DataPoint>
+    private indexValue: number = 0
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host
@@ -148,6 +149,19 @@ export class Visual implements IVisual {
         return false
     }
 
+    private getAverageColor(value: number): string {
+        if (value < 50) {
+            return "#E53935"; // red
+        }
+
+        if (value < 75) {
+            return "#FBC02D"; // yellow
+        }
+
+        return "#43A047"; // green
+    }
+
+
     private addDataPoint(dataPoint: DataPoint, dataCount: number, dataCurrent: number, isHighlighting: boolean) {
         debug('addDataPoint', { point: dataPoint, dataCount, dataCurrent })
 
@@ -225,7 +239,8 @@ export class Visual implements IVisual {
     }
 
     private getDataPoints(dataViews: powerbi.DataView[]): DataPoint[] {
-        if (!dataViews
+        if (
+            !dataViews
             || !dataViews[0]
             || !dataViews[0].categorical
             || !dataViews[0].categorical.categories
@@ -238,13 +253,24 @@ export class Visual implements IVisual {
         const categoryColumn = categorical.categories[0]
 
         const valuesColumn = categorical.values[0]
-        const values = valuesColumn.values as number[]
+        const values = valuesColumn.values
         const highlights = valuesColumn.highlights as (number | null)[] | undefined
 
         debug('categorical', { categorical, values, highlights })
 
-        return values.map((value, index) => {
-            const valueNum = value as number
+        const dataPoints: DataPoint[] = []
+
+        values.forEach((value, index) => {
+
+            // Älä piirrä kategorioita, joiden varsinainen radar-arvo on BLANK/null
+            if (
+                value === null
+                || value === undefined
+                || typeof value !== "number"
+                || !isFinite(value)
+            ) {
+                return
+            }
 
             const selectionId = this.host.createSelectionIdBuilder()
                 .withCategory(categoryColumn, index)
@@ -252,25 +278,39 @@ export class Visual implements IVisual {
 
             const highlight = !!(highlights && highlights[index])
 
-            return {
+            dataPoints.push({
                 label: categoryColumn.values[index] as string,
-                value: valueNum > MAX_VALUE ? MAX_VALUE + 0.01 : valueNum,
+                value: value > MAX_VALUE ? MAX_VALUE + 0.01 : value,
                 selectionId,
                 highlight
-            }
-
+            })
         })
+
+        return dataPoints
     }
 
-    private getScore(dataPoints: DataPoint[]): string {
-        if (dataPoints.length === 0) {
-            return ""
+    private getIndexValue(dataViews: powerbi.DataView[]): number {
+        if (
+            !dataViews
+            || !dataViews[0]
+            || !dataViews[0].categorical
+            || !dataViews[0].categorical.values
+        ) {
+            return 0
         }
-        const sum = dataPoints.reduce((acc, current) => {
-            return acc + current.value
-        }, 0)
-        const avg = sum / dataPoints.length
-        return Math.round(100 * (avg - 1) / (MAX_VALUE - 1)).toString()
+
+        const categorical = dataViews[0].categorical
+        const indexColumn = categorical.values[1]
+
+        if (!indexColumn || !indexColumn.values) {
+            return 0
+        }
+
+        const value = indexColumn.values.find(
+            v => v !== null && v !== undefined && typeof v === "number" && isFinite(v)
+        )
+
+        return typeof value === "number" ? value : 0
     }
 
     private hasHighlights(dataPoints: Array<DataPoint>): boolean {
@@ -378,13 +418,15 @@ export class Visual implements IVisual {
                 this.render()
                 event.stopPropagation()
             })
-
+        
+        const scoreColor = this.getAverageColor(this.indexValue)
 
         this.circleBullseye = this.dataContainer.append("circle")
-        this.updateCircle(this.circleBullseye, COLOR_BLUE, COLOR_BLUE, 0.6 / MAX_VALUE)
+        this.updateCircle(this.circleBullseye, scoreColor, scoreColor, 0.6 / MAX_VALUE)
+
         this.textLabel = this.dataContainer.append("text")
         this.textLabel
-            .text(this.getScore(this.dataPoints))
+            .text(Math.round(this.indexValue).toString())
             .attr("x", this.width / 2)
             .attr("y", this.height / 2)
             .attr("dy", "+0.35em")
@@ -413,6 +455,7 @@ export class Visual implements IVisual {
             this.fontSizeValue = Math.min(this.width, this.height) / 5
 
             this.dataPoints = this.getDataPoints(options.dataViews)
+            this.indexValue = this.getIndexValue(options.dataViews)
 
             this.render()
 
